@@ -166,3 +166,16 @@ type String struct {
 
 func (s *String) Type() ObjectType { return STRING_OBJ }
 func (s *String) String() string   { return s.Value }
+
+type Error struct {
+	Message string
+}
+
+func (e *Error) Type() ObjectType { return ERROR_OBJ }
+func (e *Error) String() string   { return e.Message }
+
+type Null struct {
+}
+
+func (n *Null) Type() ObjectType { return NULL_OBJ }
+func (n *Null) String() string   { return "nil" }

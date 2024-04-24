@@ -1,6 +1,7 @@
 package program
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -66,8 +67,7 @@ func ParseFile(input Input) (*Program, error) {
 			if name == "main" {
 				prog.Statements = decl.Body.List
 			} else {
-				addFunc(prog, name, decl)
-				prog.GlobalDecls++
+				return nil, errors.New("待处理")
 			}
 		case *ast.GenDecl:
 		default:
@@ -78,10 +78,10 @@ func ParseFile(input Input) (*Program, error) {
 	return prog, nil
 }
 
-func addFunc(prog *Program, name string, funcDecl *ast.FuncDecl) {
-	var funcLit ast.FuncLit
-	funcLit.Type = funcDecl.Type
-	funcLit.Body = funcDecl.Body
-	function := ParseFuncLit(&funcLit, prog.Env)
-	prog.Env.Set(name, funcLit)
-}
+//func addFunc(prog *Program, name string, funcDecl *ast.FuncDecl) {
+//	var funcLit ast.FuncLit
+//	funcLit.Type = funcDecl.Type
+//	funcLit.Body = funcDecl.Body
+//	function := ParseFuncLit(&funcLit, prog.Env)
+//	prog.Env.Set(name, funcLit)
+//}
