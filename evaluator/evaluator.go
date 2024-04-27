@@ -37,10 +37,167 @@ func eval(node ast.Node, env *object.Environment) object.Object {
 		return eval(node.X, env)
 	case *ast.BinaryExpr:
 		return evalBinaryExpr(node, env)
+	case *ast.UnaryExpr:
+		return evalUnaryExpr(node, env)
+	case *ast.ParenExpr:
+		return eval(node.X, env)
+	case *ast.CompositeLit:
+		return evalCompositeLit(node, env)
+	case *ast.Ident:
+		return evalIdentifier(node, env)
 	case *ast.BasicLit:
 		return parseBasicLit(node)
+	case *ast.BranchStmt:
+		if node.Tok == token.CONTINUE {
+			return object.CONTINUE
+		} else if node.Tok == token.BREAK {
+			return object.BREAK
+		} else {
+			return object.NewError("evaluator: not support ast.BranchStmt %s", node.Tok)
+		}
+	default:
+		return object.NewError("evaluator: not handle ast type %T", node)
+	}
+}
+
+func evalCompositeLit(node *ast.CompositeLit, env *object.Environment) object.Object {
+	if node.Type != nil {
+		switch nodeType := node.Type.(type) {
+		case *ast.ArrayType:
+			var elems []object.Object
+			defObj := object.GetDefaultValueWithExpr(nodeType.Elt)
+			for _, elt := range node.Elts {
+				obj := eval(elt, env)
+				obj = object.ConvertValueWithType(obj, defObj)
+				if object.IsError(obj) {
+					line, column := parsePos(elt.Pos())
+					return object.NewError("%d:%d cannot use (untyped '%s' constant) as %s value in array or slice literal", line, column, obj, defObj.Type())
+				}
+				elems = append(elems, obj)
+			}
+			var array object.Array
+			if nodeType.Len == nil {
+				array = object.NewArray(defObj.Type(), elems, false, -1)
+			} else {
+				ll := eval(nodeType.Len, env)
+				if int(ll.(object.Integer).Integer()) != len(elems) {
+					line, column := parsePos(node.Pos())
+					return object.NewError("%d:%d out of bounds", line, column)
+				}
+				array = object.NewArray(defObj.Type(), elems, true, len(elems))
+			}
+			return &array
+		case *ast.MapType:
+			mm := &object.Hash{
+				Pairs: make(map[object.HashKey]object.HashPair),
+			}
+			defKObj := object.GetDefaultValueWithExpr(nodeType.Key)
+			defVObj := object.GetDefaultValueWithExpr(nodeType.Value)
+			if _, ok := defKObj.(object.Hashable); !ok {
+				line, column := parsePos(node.Pos())
+				return object.NewError("%d:%d key not a Hashable type", line, column)
+			}
+
+			mm.KeyType = defKObj.Type()
+			mm.ValueType = defVObj.Type()
+			for _, elt := range node.Elts {
+				line, column := parsePos(node.Pos())
+				eltNode, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					return object.NewError("%d:%d not a ast.KeyValueExpr", line, column)
+				}
+				keyVal := eval(eltNode.Key, env)
+				keyVal = object.ConvertValueWithType(keyVal, defKObj)
+				if object.IsError(keyVal) {
+					return keyVal
+				}
+				valVal := eval(eltNode.Value, env)
+				valVal = object.ConvertValueWithType(valVal, defVObj)
+				if object.IsError(valVal) {
+					return valVal
+				}
+
+				pair := object.HashPair{Key: keyVal, Value: valVal}
+				mm.Pairs[keyVal.(object.Hashable).HashKey()] = pair
+			}
+			return mm
+		}
+	} else if node.Elts != nil {
+		eltt := node.Elts[0]
+		switch eltt.(type) {
+		case *ast.KeyValueExpr:
+			hash := &object.Hash{}
+			hash.Pairs = make(map[object.HashKey]object.HashPair)
+			for _, elt := range node.Elts {
+				eltKV := elt.(*ast.KeyValueExpr)
+				k := eval(eltKV.Key, env)
+				v := eval(eltKV.Value, env)
+				hash.Pairs[k.(object.Hashable).HashKey()] = object.HashPair{Key: k, Value: v}
+			}
+			return hash
+		default:
+			var array []object.Object
+			for _, elt := range node.Elts {
+				obj := eval(elt, env)
+				array = append(array, obj)
+			}
+			return &object.Array{Elements: array}
+		}
 	}
 	return nil
+}
+
+func evalIdentifier(node *ast.Ident, env *object.Environment) object.Object {
+	if node.Name == "true" {
+		return object.TRUE
+	} else if node.Name == "false" {
+		return object.FALSE
+	} else {
+		val, ok := env.Get(node.Name)
+		if ok {
+			return val.GetValue()
+		}
+		builtin := object.GetBuiltinByName(node.Name)
+		if builtin != nil {
+			return builtin
+		}
+	}
+	line, column := parsePos(node.Pos())
+	return object.NewError("%d:%d ident not found: %s", line, column, node.Name)
+}
+
+func evalUnaryExpr(node *ast.UnaryExpr, env *object.Environment) object.Object {
+	line, column := parsePos(node.X.Pos())
+	obj := eval(node.X, env)
+	if object.IsError(obj) {
+		return obj
+	}
+	switch node.Op {
+	case token.NOT:
+		if obj == object.TRUE {
+			return object.FALSE
+		} else if obj == object.FALSE {
+			return object.TRUE
+		} else {
+			return object.NewError("%d:%d operator ! not defined on %s", line, column, obj.Type())
+		}
+	case token.SUB:
+		if obj.Type().IsInteger() {
+			return object.ConvertToInt(obj.Type(), -obj.(object.Integer).Integer())
+		} else if obj.Type().IsFloat() {
+			return object.ConvertToFloat(obj.Type(), -obj.(object.Float).Float())
+		} else {
+			return object.NewError("%d:%d operator - not defined on %s", line, column, obj.Type())
+		}
+	case token.ADD:
+		if obj.Type().IsInteger() || obj.Type().IsFloat() {
+			return obj
+		} else {
+			return object.NewError("%d:%d operator + not defined on %s", line, column, obj.Type())
+		}
+	default:
+		return object.NewError("%d:%d operator %s not support on %s", line, column, node.Op, obj.Type())
+	}
 }
 
 func evalBinaryExpr(node *ast.BinaryExpr, env *object.Environment) object.Object {

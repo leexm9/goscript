@@ -3,6 +3,7 @@ package object
 import (
 	"bytes"
 	"fmt"
+	"go/ast"
 	"hash/fnv"
 	"strconv"
 	"strings"
@@ -98,6 +99,19 @@ type HashKey struct {
 type Hashable interface {
 	HashKey() HashKey
 }
+
+type Error struct {
+	Message string
+}
+
+func (e *Error) Type() ObjectType { return ERROR_OBJ }
+func (e *Error) String() string   { return e.Message }
+
+type Null struct {
+}
+
+func (n *Null) Type() ObjectType { return NULL_OBJ }
+func (n *Null) String() string   { return "nil" }
 
 type (
 	Integer interface {
@@ -277,6 +291,16 @@ type (
 	}
 )
 
+func NewArray(elemType ObjectType, elems []Object, fixed bool, fixLen int) Array {
+	if fixed && len(elems) == 0 && fixLen > 0 {
+		for i := 0; i < fixLen; i++ {
+			elems = append(elems, GetDefaultObject(elemType.String()))
+		}
+	}
+	array := Array{elemType, elems, len(elems)}
+	return array
+}
+
 func (s *String) HashKey() HashKey {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(s.Value))
@@ -310,19 +334,6 @@ func (h *Hash) String() string {
 	out.WriteString("}")
 	return out.String()
 }
-
-type Error struct {
-	Message string
-}
-
-func (e *Error) Type() ObjectType { return ERROR_OBJ }
-func (e *Error) String() string   { return e.Message }
-
-type Null struct {
-}
-
-func (n *Null) Type() ObjectType { return NULL_OBJ }
-func (n *Null) String() string   { return "nil" }
 
 /*-----------------------------------*/
 
@@ -360,3 +371,67 @@ type Return struct {
 
 func (rt *Return) Type() ObjectType { return RETURN_OBJ }
 func (rt *Return) String() string   { return "return" }
+
+type Continue struct {
+}
+
+func (cn *Continue) Type() ObjectType { return CONTINUE_OBJ }
+func (cn *Continue) String() string   { return "continue" }
+
+type Break struct {
+}
+
+func (bk *Break) Type() ObjectType { return BREAK_OBJ }
+func (bk *Break) String() string   { return "break" }
+
+/*-----------------------------------*/
+
+type BuiltinFunction func(args ...Object) Object
+
+type Builtin struct {
+	Fn BuiltinFunction
+}
+
+func (bti Builtin) Type() ObjectType { return BUILTIN_OBJ }
+func (bti Builtin) String() string   { return "Builtin function" }
+
+type ElemTypeEnum int
+
+const (
+	ElemBase ElemTypeEnum = iota
+	ElemArray
+	ElemHash
+	ElemStruct
+)
+
+type (
+	ElemType struct {
+		Type     *ast.Ident
+		TypeElem ElemTypeEnum
+		Types    []*ast.Ident
+	}
+
+	FunArg struct {
+		Symbol *ast.Ident
+		Type   ElemType
+	}
+
+	FunResult struct {
+		Symbol  *ast.Ident
+		Type    ElemType
+		IsFun   bool
+		Params  []FunArg
+		Results []FunResult
+	}
+
+	Function struct {
+		Name    string
+		Params  []FunArg
+		Results []FunResult
+		Body    *ast.BlockStmt
+		Env     *Environment
+	}
+)
+
+func (fn *Function) Type() ObjectType { return FUNCTION_OBJ }
+func (fn *Function) String() string   { return "function" }

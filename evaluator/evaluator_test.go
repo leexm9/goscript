@@ -1,6 +1,7 @@
 package evaluator
 
 import (
+	"fmt"
 	"goscript/object"
 	"goscript/program"
 	"testing"
@@ -14,6 +15,18 @@ func testEval(t *testing.T, input string, isStmt bool) object.Object {
 		t.FailNow()
 	}
 	return EvalProgram(prog)
+}
+
+func TestStmt(t *testing.T) {
+	test := struct {
+		input    string
+		expected any
+	}{
+		`map[string]int{"A":1, "B":2, "C": 3}`,
+		map[string]int{"A": 1, "B": 2, "C": 4},
+	}
+	evaluated := testEval(t, test.input, true)
+	testObject(t, evaluated, test.expected)
 }
 
 func TestObject(t *testing.T) {
@@ -60,6 +73,24 @@ func TestBinaryOperator(t *testing.T) {
 		{`"ab" == "ab"`, true},
 		{`"ab" != "ab"`, false},
 		{`"ab" != ""`, true},
+
+		{"true == true", true},
+		{"true == false", false},
+		{"true && false", false},
+		{"true || false", true},
+
+		{
+			"[]int{1, 2, 4, 5}",
+			[]int{1, 2, 4, 5},
+		},
+		{
+			"[]int{1+2, 3-4, 5 * 6}",
+			[]int{3, -1, 30},
+		},
+		{
+			`map[string]int{"A":1, "B":2, "C": 3}`,
+			map[string]int{"A": 1, "B": 2, "C": 3},
+		},
 	}
 
 	for _, tt := range tests {
@@ -68,114 +99,171 @@ func TestBinaryOperator(t *testing.T) {
 	}
 }
 
-func testObject(t *testing.T, evaluated object.Object, expected any) bool {
+func TestUnaryOperator(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected any
+	}{
+		{"-3", -3},
+		{"+3", 3},
+		{"-(-3)", 3},
+		{"-3.2", -3.2},
+		{"!true", false},
+		{"!false", true},
+		{"!!false", false},
+	}
+
+	for _, tt := range tests {
+		evaluated := testEval(t, tt.input, true)
+		testObject(t, evaluated, tt.expected)
+	}
+}
+
+func TestArrayLit(t *testing.T) {
+
+}
+
+func testObject(t *testing.T, evaluated object.Object, expected any) {
 	t.Helper()
 	switch expected := expected.(type) {
 	case int:
-		return testIntegerObject(t, evaluated, expected)
+		err := testIntegerObject(t, evaluated, expected)
+		if err != nil {
+			t.Errorf("testIntegerObject failed: %s", err)
+		}
 	case float64:
-		return testFloatObject(t, evaluated, expected)
+		err := testFloatObject(t, evaluated, expected)
+		if err != nil {
+			t.Errorf("testFloatObject failed: %s", err)
+		}
 	case bool:
-		return testBooleanObject(t, evaluated, expected)
+		err := testBooleanObject(t, evaluated, expected)
+		if err != nil {
+			t.Errorf("testBooleanObject failed: %s", err)
+		}
 	case byte:
-		return testByteObject(t, evaluated, expected)
+		err := testByteObject(t, evaluated, expected)
+		if err != nil {
+			t.Errorf("testByteObject failed: %s", err)
+		}
 	case string:
-		return testStringObject(t, evaluated, expected)
+		err := testStringObject(t, evaluated, expected)
+		if err != nil {
+			t.Errorf("testStringObject failed: %s", err)
+		}
 	case *object.Null:
-		return testNullObject(t, evaluated, expected)
+		err := testNullObject(t, evaluated, expected)
+		if err != nil {
+			t.Errorf("testNullObject failed: %s", err)
+		}
 	case object.Error:
 		errObj, ok := evaluated.(*object.Error)
 		if !ok {
 			t.Errorf("object is not Error: %T (%+v)", expected, evaluated)
-			return false
 		}
 		if errObj.Message != expected.Message {
 			t.Errorf("wrong error message. expected=%s, got=%s", expected, errObj.Message)
 		}
+	case []int:
+		array, ok := evaluated.(*object.Array)
+		if !ok {
+			t.Errorf("object is not array: %T (%+v)", evaluated, evaluated)
+		}
+		if len(array.Elements) != len(expected) {
+			t.Errorf("wrong number of elements. want=%d, got=%d", len(expected), len(array.Elements))
+		}
+		for i, elem := range array.Elements {
+			err := testIntegerObject(t, elem, expected[i])
+			if err != nil {
+				t.Errorf("testIntegerObject failed: %s", err)
+			}
+		}
+	case map[string]int:
+		hashObj, ok := evaluated.(*object.Hash)
+		if !ok {
+			t.Errorf("object is not hash: %T (%+v)", evaluated, evaluated)
+		}
+		for _, pair := range hashObj.Pairs {
+			key := pair.Key.(*object.String)
+			v := pair.Value
+			ev, ok1 := expected[key.Value]
+			if !ok1 {
+				t.Errorf("the key: %s not exist in hash", key.Value)
+			}
+			err := testIntegerObject(t, v, ev)
+			if err != nil {
+				t.Errorf("key-value: %s - %d not exist in hash", key.Value, v.(*object.Int).Value)
+			}
+		}
 	default:
 		t.Errorf("object is not support. got=%T (%+v)", evaluated, evaluated)
-		return false
 	}
-	return true
 }
 
-func testIntegerObject(t *testing.T, obj object.Object, expected int) bool {
+func testIntegerObject(t *testing.T, obj object.Object, expected int) error {
 	t.Helper()
 	result, ok := obj.(object.Integer)
 	if !ok {
-		t.Errorf("object is not Integer. got=%T (%+v)", obj, obj)
-		return false
+		return fmt.Errorf("object is not Integer. got=%T (%+v)", obj, obj)
 	}
 	if result.Integer() != int64(expected) {
-		t.Errorf("object has wrong value. got=%d, want=%d", result.Integer(), expected)
-		return false
+		return fmt.Errorf("object has wrong value. got=%d, want=%d", result.Integer(), expected)
 	}
-
-	return true
+	return nil
 }
 
-func testFloatObject(t *testing.T, obj object.Object, expected float64) bool {
+func testFloatObject(t *testing.T, obj object.Object, expected float64) error {
 	t.Helper()
 	result, ok := obj.(object.Float)
 	if !ok {
-		t.Errorf("object is not Float. got=%T (%+v)", obj, obj)
-		return false
+		return fmt.Errorf("object is not Float. got=%T (%+v)", obj, obj)
 	}
 	if result.Float() != expected {
-		t.Errorf("object has wrong value. got=%f, want=%f", result.Float(), expected)
-		return false
+		return fmt.Errorf("object has wrong value. got=%f, want=%f", result.Float(), expected)
 	}
-
-	return true
+	return nil
 }
 
-func testByteObject(t *testing.T, obj object.Object, expected byte) bool {
+func testByteObject(t *testing.T, obj object.Object, expected byte) error {
 	t.Helper()
 	result, ok := obj.(*object.Byte)
 	if !ok {
-		t.Errorf("object is not Byte. got=%T (%+v)", obj, obj)
-		return false
+		return fmt.Errorf("object is not Byte. got=%T (%+v)", obj, obj)
 	}
 	if result.Value != expected {
-		t.Errorf("object has wrong value. got=%d, want=%d", result.Value, expected)
-		return false
+		return fmt.Errorf("object has wrong value. got=%d, want=%d", result.Value, expected)
 	}
-
-	return true
+	return nil
 }
 
-func testBooleanObject(t *testing.T, obj object.Object, expected bool) bool {
+func testBooleanObject(t *testing.T, obj object.Object, expected bool) error {
 	t.Helper()
 	result, ok := obj.(*object.Boolean)
 	if !ok {
-		t.Errorf("object is not Boolean. got=%T (%+v)", obj, obj)
-		return false
+		return fmt.Errorf("object is not Boolean. got=%T (%+v)", obj, obj)
 	}
 	if result.Value != expected {
-		t.Errorf("object has wrong value. got=%t, want=%t", result.Value, expected)
-		return false
+		return fmt.Errorf("object has wrong value. got=%t, want=%t", result.Value, expected)
 	}
-	return true
+	return nil
 }
 
-func testStringObject(t *testing.T, obj object.Object, expected string) bool {
+func testStringObject(t *testing.T, obj object.Object, expected string) error {
 	t.Helper()
 	result, ok := obj.(*object.String)
 	if !ok {
-		t.Errorf("object is not string. got=%T (%+v)", obj, obj)
-		return false
+		return fmt.Errorf("object is not string. got=%T (%+v)", obj, obj)
 	}
 	if result.Value != expected {
-		t.Errorf("object has wrong value. got=%s, want=%s", result.Value, expected)
-		return false
+		return fmt.Errorf("object has wrong value. got=%s, want=%s", result.Value, expected)
 	}
-	return true
+	return nil
 }
 
-func testNullObject(t *testing.T, obj object.Object, expected any) bool {
+func testNullObject(t *testing.T, obj object.Object, expected any) error {
 	t.Helper()
 	if expected == nil && obj == nil {
-		return true
+		return nil
 	}
-	return false
+	return nil
 }
