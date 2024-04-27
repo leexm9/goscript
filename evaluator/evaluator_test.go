@@ -35,6 +35,39 @@ func TestObject(t *testing.T) {
 	}
 }
 
+func TestBinaryOperator(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected any
+	}{
+		{"3 + 4", 7},
+		{"3 - 4", -1},
+		{"3 * 4", 12},
+		{"4 / 2", 2},
+		{"4 % 3", 1},
+		{"3 & 1", 1},
+		{"3 | 1", 3},
+		{"3 ^ 1", 2},
+		{"3 << 1", 6},
+		{"3 >> 1", 1},
+		{"3 &^ 1", 2},
+
+		{"3 > 1", true},
+		{"3 >= 1", true},
+		{"3 < 1", false},
+
+		{`"hel" + "lo"`, "hello"},
+		{`"ab" == "ab"`, true},
+		{`"ab" != "ab"`, false},
+		{`"ab" != ""`, true},
+	}
+
+	for _, tt := range tests {
+		evaluated := testEval(t, tt.input, true)
+		testObject(t, evaluated, tt.expected)
+	}
+}
+
 func testObject(t *testing.T, evaluated object.Object, expected any) bool {
 	t.Helper()
 	switch expected := expected.(type) {
