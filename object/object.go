@@ -347,18 +347,20 @@ func (me *MapExist) Type() ObjectType { return MAP_EXIST_OBJ }
 func (me *MapExist) String() string   { return me.Value.String() }
 
 type SingleReturn struct {
-	Value Object
+	Value   Object
+	FromFun bool
 }
 
 func (srt *SingleReturn) Type() ObjectType { return SINGLE_RETURN_OBJ }
 func (srt *SingleReturn) String() string   { return srt.Value.String() }
 
-type MultiReturnValue struct {
-	Values []Object
+type MultiReturn struct {
+	Values  []Object
+	FromFun bool
 }
 
-func (mrt *MultiReturnValue) Type() ObjectType { return MULTI_RETURN_OBJ }
-func (mrt MultiReturnValue) String() string {
+func (mrt *MultiReturn) Type() ObjectType { return MULTI_RETURN_OBJ }
+func (mrt MultiReturn) String() string {
 	var rts []string
 	for _, value := range mrt.Values {
 		rts = append(rts, value.String())

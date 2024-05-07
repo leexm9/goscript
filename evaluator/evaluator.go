@@ -35,14 +35,24 @@ func eval(node ast.Node, env *object.Environment) object.Object {
 	switch node := node.(type) {
 	case *ast.ExprStmt:
 		return eval(node.X, env)
+	case *ast.ReturnStmt:
+		return evalReturnStmt(node, env)
+	case *ast.BlockStmt:
+		return evalBlockStmt(node, env)
 	case *ast.BinaryExpr:
 		return evalBinaryExpr(node, env)
 	case *ast.UnaryExpr:
 		return evalUnaryExpr(node, env)
 	case *ast.ParenExpr:
 		return eval(node.X, env)
+	case *ast.IndexExpr:
+		return evalIndexExpr(node, env)
+	case *ast.CallExpr:
+		return evalCallExpr(node, env)
 	case *ast.CompositeLit:
 		return evalCompositeLit(node, env)
+	case *ast.FuncLit:
+		return evalFuncLit(node, env)
 	case *ast.Ident:
 		return evalIdentifier(node, env)
 	case *ast.BasicLit:
@@ -57,6 +67,221 @@ func eval(node ast.Node, env *object.Environment) object.Object {
 		}
 	default:
 		return object.NewError("evaluator: not handle ast type %T", node)
+	}
+}
+
+func evalReturnStmt(node *ast.ReturnStmt, env *object.Environment) object.Object {
+	var objs []object.Object
+	for _, result := range node.Results {
+		obj := eval(result, env)
+		if object.IsError(obj) {
+			return obj
+		}
+		objs = append(objs, obj)
+	}
+	if node.Results == nil {
+		return &object.SingleReturn{Value: nil}
+	} else if len(node.Results) == 1 {
+		switch rt := objs[0].(type) {
+		case *object.SingleReturn:
+			rt.FromFun = false
+			return rt
+		case *object.MultiReturn:
+			rt.FromFun = false
+			return rt
+		default:
+			return &object.SingleReturn{Value: objs[0]}
+		}
+	} else {
+		return &object.MultiReturn{Values: objs}
+	}
+}
+
+func evalBlockStmt(node *ast.BlockStmt, env *object.Environment) object.Object {
+	for _, stmt := range node.List {
+		obj := eval(stmt, env)
+		if object.IsError(obj) {
+			return obj
+		}
+		switch tmpRs := obj.(type) {
+		case *object.SingleReturn:
+			if !tmpRs.FromFun {
+				return tmpRs
+			}
+		case *object.MultiReturn:
+			if !tmpRs.FromFun {
+				return tmpRs
+			}
+		case *object.Continue, *object.Break:
+			return obj
+		}
+	}
+	return nil
+}
+
+func evalCallExpr(node *ast.CallExpr, env *object.Environment) object.Object {
+	args := evalExpressions(node.Args, env)
+	if len(args) == 1 && object.IsError(args[0]) {
+		return args[0]
+	}
+
+	line, column := parsePos(node.Pos())
+	switch fnIdt := node.Fun.(type) {
+	case *ast.Ident:
+		fn := evalIdentifier(fnIdt, env)
+		if object.IsError(fn) {
+			return fn
+		}
+
+		switch function := fn.(type) {
+		case *object.Function:
+			extendEnv, err := extendFunctionEnv(function, args)
+			if err != nil {
+				return object.NewError("%d:%d %s to %s", line, column, err.Message, fnIdt.Name)
+			}
+			evaluated := eval(function.Body, extendEnv)
+			return unwrapFuncReturn(evaluated, function)
+		case *object.Builtin:
+			if result := function.Fn(args...); result != nil {
+				return result
+			}
+			return nil
+		default:
+			return object.NewError("%d:%d not a function %s", line, column, fn.Type())
+		}
+	case *ast.FuncLit:
+		tmpFun := eval(fnIdt, env)
+		function, ok := tmpFun.(*object.Function)
+		if !ok {
+			return object.NewError("%d:%d function literal error", line, column)
+		}
+		extendEnv, err := extendFunctionEnv(function, args)
+		if err != nil {
+			return object.NewError("%d:%d %s", line, column, err.Message)
+		}
+		evaluated := eval(function.Body, extendEnv)
+		return unwrapFuncReturn(evaluated, function)
+	default:
+		return nil
+	}
+}
+
+func evalExpressions(exprs []ast.Expr, env *object.Environment) []object.Object {
+	var result []object.Object
+	for _, expr := range exprs {
+		evaluated := eval(expr, env)
+		if object.IsError(evaluated) {
+			return []object.Object{evaluated}
+		}
+		switch evaluated.Type() {
+		case object.SINGLE_RETURN_OBJ:
+			result = append(result, evaluated.(*object.SingleReturn).Value)
+		case object.MULTI_RETURN_OBJ:
+			multi := evaluated.(*object.MultiReturn)
+			for _, value := range multi.Values {
+				result = append(result, value)
+			}
+		case object.MAP_EXIST_OBJ:
+			result = append(result, evaluated.(*object.MapExist).Value)
+		default:
+			result = append(result, evaluated)
+		}
+	}
+	return result
+}
+
+func extendFunctionEnv(fn *object.Function, args []object.Object) (*object.Environment, *object.Error) {
+	env := object.NewEnclosedEnvironment(fn.Env)
+	if len(fn.Params) > len(args) {
+		return env, object.NewError("not enough arguments in call")
+	} else if len(fn.Params) < len(args) {
+		return env, object.NewError("too many arguments in call")
+	}
+	for i, funArg := range fn.Params {
+		defObj := object.GetDefaultValueFromElem(funArg.Type)
+		if args[i].Type() != defObj.Type() {
+			return env, object.NewError("cannot use '%s' (untyped %s constant) as %s value in argument", args[i], args[i].Type(), defObj.Type())
+		}
+		env.Set(funArg.Symbol.Name, args[i])
+	}
+
+	for _, funResult := range fn.Results {
+		if funResult.Symbol != nil {
+			defObj := object.GetDefaultValueFromElem(funResult.Type)
+			env.Set(funResult.Symbol.Name, defObj)
+		}
+	}
+
+	return env, nil
+}
+
+func unwrapFuncReturn(rt object.Object, fn *object.Function) object.Object {
+	if object.IsError(rt) {
+		return rt
+	}
+	if rtObj, ok := rt.(*object.SingleReturn); ok {
+		if rtObj.Value != nil {
+			mev, ok := rtObj.Value.(*object.MapExist)
+			if ok {
+				return &object.SingleReturn{Value: mev.Value, FromFun: true}
+			} else {
+				rtObj.FromFun = true
+				return rtObj
+			}
+		} else if len(fn.Results) > 0 {
+			var objs []object.Object
+			for _, re := range fn.Results {
+				obj, _ := fn.Env.Get(re.Symbol.Name)
+				objs = append(objs, obj.Value)
+			}
+			if len(fn.Results) == 1 {
+				return &object.SingleReturn{Value: objs[0], FromFun: true}
+			} else {
+				return &object.MultiReturn{Values: objs, FromFun: true}
+			}
+		}
+	}
+	return rt
+}
+
+func evalFuncLit(node *ast.FuncLit, env *object.Environment) object.Object {
+	return program.ParseFuncLit(node, env)
+}
+
+func evalIndexExpr(node *ast.IndexExpr, env *object.Environment) object.Object {
+	idt := eval(node.X, env)
+	if object.IsError(idt) {
+		return idt
+	}
+	idx := eval(node.Index, env)
+	if object.IsError(idx) {
+		return idx
+	}
+	return doIndex(idt, idx)
+}
+
+func doIndex(source object.Object, index object.Object) object.Object {
+	switch source.Type() {
+	case object.ARRAY_OBJ:
+		array := source.(*object.Array)
+		i := index.(object.Integer).Integer()
+		return array.Elements[i]
+	case object.HASH_OBJ:
+		m := source.(*object.Hash)
+		pair, ok := m.Pairs[index.(object.Hashable).HashKey()]
+		if !ok {
+			pair.Value = object.GetDefaultObject(m.ValueType.String())
+		}
+		return &object.MapExist{Value: pair.Value, Exist: ok}
+	case object.STRING_OBJ:
+		ss := source.(*object.String)
+		i := index.(object.Integer).Integer()
+		return &object.Uint8{Value: ss.Value[i]}
+	case object.MAP_EXIST_OBJ:
+		tmp := source.(*object.MapExist).Value
+		return doIndex(tmp, index)
+	default:
+		return object.NewError("invalid operation: cannont index (variable of type %s)", source.Type())
 	}
 }
 

@@ -119,8 +119,35 @@ func TestUnaryOperator(t *testing.T) {
 	}
 }
 
-func TestArrayLit(t *testing.T) {
+func TestCompositeIndexLit(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected any
+	}{
+		{"[]int{1, 2, 3, 4}[0]", 1},
+		{"[]int{1, 2, 3, 4}[1]", 2},
+		{`map[string]int{"A":1, "B":2, "C": 3}["A"]`, 1},
+		{`map[string]int{"A":1, "B":2, "C": 3}["B"]`, 2},
+		{`map[string]int{"A":1, "B":2, "C": 3}["D"]`, 0},
+	}
+	for _, tt := range tests {
+		evaluated := testEval(t, tt.input, true)
+		testObject(t, evaluated, tt.expected)
+	}
+}
 
+func TestFunctionLitExpr(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected any
+	}{
+		{"func(a, b int) int { return a + b }(2, 3)", 5},
+	}
+
+	for _, tt := range tests {
+		evaluated := testEval(t, tt.input, true)
+		testObject(t, evaluated, tt.expected)
+	}
 }
 
 func testObject(t *testing.T, evaluated object.Object, expected any) {

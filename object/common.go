@@ -182,3 +182,19 @@ func ConvertValueWithType(obj, typeObj Object) Object {
 	}
 	return obj
 }
+
+func GetDefaultValueFromElem(elemType ElemType) Object {
+	switch elemType.TypeElem {
+	case ElemBase:
+		return GetDefaultObject(elemType.Type.Name)
+	case ElemArray:
+		elem := GetDefaultObject(elemType.Type.Name)
+		return &Array{ElemType: elem.Type()}
+	case ElemHash:
+		key := GetDefaultObject(elemType.Types[0].Name)
+		value := GetDefaultObject(elemType.Types[1].Name)
+		return &Hash{KeyType: key.Type(), ValueType: value.Type()}
+	default:
+		return nil
+	}
+}
