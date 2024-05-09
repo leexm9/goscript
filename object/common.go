@@ -3,14 +3,29 @@ package object
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 )
 
 var (
+	NULL     = &Null{}
 	TRUE     = &Boolean{Value: true}
 	FALSE    = &Boolean{Value: false}
-	NULL     = &Null{}
 	CONTINUE = &Continue{}
 	BREAK    = &Break{}
+
+	PairToken = map[token.Token]token.Token{
+		token.ADD_ASSIGN:     token.ADD,
+		token.SUB_ASSIGN:     token.SUB,
+		token.MUL_ASSIGN:     token.MUL,
+		token.QUO_ASSIGN:     token.QUO,
+		token.REM_ASSIGN:     token.REM,
+		token.AND_ASSIGN:     token.AND,
+		token.OR_ASSIGN:      token.OR,
+		token.XOR_ASSIGN:     token.XOR,
+		token.SHL_ASSIGN:     token.SHL,
+		token.SHR_ASSIGN:     token.SHR,
+		token.AND_NOT_ASSIGN: token.AND_NOT,
+	}
 )
 
 func NewError(format string, a ...any) *Error {
@@ -18,7 +33,7 @@ func NewError(format string, a ...any) *Error {
 }
 
 func IsError(obj Object) bool {
-	return obj.Type() == ERROR_OBJ
+	return obj != nil && obj.Type() == ERROR_OBJ
 }
 
 func ConvertToInt(oType ObjectType, val int64) Object {
@@ -126,41 +141,41 @@ func GetDefaultObject(objType string) Object {
 	}
 }
 
-func ConvertValueWithType(obj, typeObj Object) Object {
+func ConvertValueWithType(valObj, typeObj Object) Object {
 	if typeObj == nil {
-		return obj
+		return valObj
 	}
 	toType := typeObj.Type()
 	if toType.IsInteger() {
-		if tmp, ok := obj.(Integer); ok {
+		if tmp, ok := valObj.(Integer); ok {
 			return ConvertToInt(toType, tmp.Integer())
 		} else {
-			return NewError("cannot convert (untyped '%s' constant) to type %s", obj.Type(), toType)
+			return NewError("cannot convert (untyped '%s' constant) to type %s", valObj.Type(), toType)
 		}
 	} else if toType.IsFloat() {
-		if tmp, ok := obj.(Float); ok {
+		if tmp, ok := valObj.(Float); ok {
 			return ConvertToFloat(toType, tmp.Float())
 		} else {
-			return NewError("cannot convert (untyped '%s' constant) to type %s", obj.Type(), toType)
+			return NewError("cannot convert (untyped '%s' constant) to type %s", valObj.Type(), toType)
 		}
 	} else if toType == STRING_OBJ {
-		if obj.Type() == STRING_OBJ {
-			return obj
+		if valObj.Type() == STRING_OBJ {
+			return valObj
 		} else {
-			return NewError("cannot convert (untyped '%s' constant) to type string", obj.Type())
+			return NewError("cannot convert (untyped '%s' constant) to type string", valObj.Type())
 		}
 	} else if toType == BOOLEAN_OBJ {
-		if obj.Type() == BOOLEAN_OBJ {
-			return obj
+		if valObj.Type() == BOOLEAN_OBJ {
+			return valObj
 		} else {
-			return NewError("cannot convert (untyped '%s' constant) to type bool", obj.Type())
+			return NewError("cannot convert (untyped '%s' constant) to type bool", valObj.Type())
 		}
 	} else if toType == ARRAY_OBJ {
 		array := &Array{ElemType: typeObj.(*Array).ElemType}
 		array.Elements = []Object{}
-		if obj != nil {
+		if valObj != nil {
 			defObj := GetDefaultObject(array.ElemType.String())
-			for _, elem := range obj.(*Array).Elements {
+			for _, elem := range valObj.(*Array).Elements {
 				tmp := ConvertValueWithType(elem, defObj)
 				array.Elements = append(array.Elements, tmp)
 			}
@@ -169,10 +184,10 @@ func ConvertValueWithType(obj, typeObj Object) Object {
 	} else if toType == HASH_OBJ {
 		hash := &Hash{KeyType: typeObj.(*Hash).KeyType, ValueType: typeObj.(*Hash).ValueType}
 		hash.Pairs = map[HashKey]HashPair{}
-		if obj != nil {
+		if valObj != nil {
 			defKObj := GetDefaultObject(hash.KeyType.String())
 			defVObj := GetDefaultObject(hash.ValueType.String())
-			for _, pair := range obj.(*Hash).Pairs {
+			for _, pair := range valObj.(*Hash).Pairs {
 				k := ConvertValueWithType(pair.Key, defKObj)
 				v := ConvertValueWithType(pair.Value, defVObj)
 				hash.Pairs[k.(Hashable).HashKey()] = HashPair{Key: k, Value: v}
@@ -180,7 +195,7 @@ func ConvertValueWithType(obj, typeObj Object) Object {
 		}
 		return hash
 	}
-	return obj
+	return valObj
 }
 
 func GetDefaultValueFromElem(elemType ElemType) Object {

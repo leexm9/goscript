@@ -24,6 +24,8 @@ type Program struct {
 
 func NewProgram() *Program {
 	var prog Program
+	env := object.NewEnvironment()
+	prog.Env = env
 	return &prog
 }
 
