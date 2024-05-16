@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"goscript/code"
 	"hash/fnv"
 	"strconv"
 	"strings"
@@ -437,3 +438,47 @@ type (
 
 func (fn *Function) Type() ObjectType { return FUNCTION_OBJ }
 func (fn *Function) String() string   { return "function" }
+
+type CompiledFunction struct {
+	Name         string
+	Instructions code.Instructions
+	NumLocals    int
+	NumParams    int
+	NumResult    int
+	FreeNum      int
+}
+
+func (cf *CompiledFunction) Type() ObjectType { return COMPILED_FUNCTION_OBJ }
+func (cf *CompiledFunction) String() string   { return fmt.Sprintf("CompiledFunction[%p]", cf) }
+
+type Closure struct {
+	Fn      *CompiledFunction
+	ForLoop Object
+	Free    []Object
+}
+
+func (c *Closure) Type() ObjectType { return CLOSURE_OBJ }
+func (c *Closure) String() string   { return fmt.Sprintf("Closure[%p]", c) }
+
+type ForLoop struct {
+	Init      code.Instructions
+	Cond      code.Instructions
+	Body      code.Instructions
+	Post      code.Instructions
+	NumLocals int
+	FreeNum   int
+}
+
+func (fl *ForLoop) Type() ObjectType { return FORLOOP_OBJ }
+func (fl *ForLoop) String() string   { return fmt.Sprintf("fori") }
+
+type RangeLoop struct {
+	X           code.Instructions
+	Body        code.Instructions
+	IsAnonymous bool
+	NumLocals   int
+	FreeNum     int
+}
+
+func (rl *RangeLoop) Type() ObjectType { return RANGELOOP_OBJ }
+func (rl *RangeLoop) String() string   { return fmt.Sprintf("forr") }
