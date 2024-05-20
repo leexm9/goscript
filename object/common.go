@@ -213,3 +213,14 @@ func GetDefaultValueFromElem(elemType ElemType) Object {
 		return nil
 	}
 }
+
+func IsTruthy(condition Object) bool {
+	if condition == TRUE {
+		return true
+	} else if condition == FALSE {
+		return false
+	} else if condition.Type() == BOOLEAN_OBJ {
+		return condition.(*Boolean).Value
+	}
+	return false
+}
